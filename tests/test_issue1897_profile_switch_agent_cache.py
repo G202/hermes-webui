@@ -33,6 +33,7 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
     from api import oauth
     from api import profiles
     from api import streaming
+    from hermes_constants import get_hermes_home, get_hermes_home_override
 
     default_home = tmp_path / "hermes-home"
     profile_a_home = default_home / "profiles" / "alpha"
@@ -96,6 +97,7 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
     constructed_agents = []
     prompts_used_for_runs = []
     homes_seen_during_runs = []
+    fail_agent_construction = [False]
 
     class SoulCachingAgent:
         def __init__(self, **kwargs):
@@ -113,9 +115,16 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
             self.tool_progress_callback = kwargs.get("tool_progress_callback")
             self.reasoning_callback = kwargs.get("reasoning_callback")
             self.clarify_callback = kwargs.get("clarify_callback")
-            home = Path(os.environ["HERMES_HOME"])
+            process_home = os.environ["HERMES_HOME"]
+            os.environ["HERMES_HOME"] = str(default_home)
+            try:
+                home = Path(get_hermes_home())
+            finally:
+                os.environ["HERMES_HOME"] = process_home
             self.constructed_home = str(home)
             self._cached_system_prompt = (home / "SOUL.md").read_text(encoding="utf-8")
+            if fail_agent_construction[0]:
+                raise RuntimeError("synthetic agent construction failure")
             constructed_agents.append(self)
 
         def run_conversation(self, **kwargs):
@@ -198,6 +207,7 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
             workspace=str(tmp_path),
             stream_id=stream_id,
         )
+        assert get_hermes_home_override() is None
 
     run_turn("alpha", "issue1897-stream-1", "first turn")
     run_turn("alpha", "issue1897-stream-2", "same profile second turn")
@@ -221,6 +231,11 @@ def test_same_session_profile_switch_rebuilds_agent_under_new_soul_home(tmp_path
     ]
     with cfg.SESSION_AGENT_CACHE_LOCK:
         assert cfg.SESSION_AGENT_CACHE[fake_session.session_id][0] is constructed_agents[-1]
+
+    with cfg.SESSION_AGENT_CACHE_LOCK:
+        cfg.SESSION_AGENT_CACHE.clear()
+    fail_agent_construction[0] = True
+    run_turn("alpha", "issue1897-stream-4", "failing construction turn")
 
 
 def test_cache_signature_includes_profile_home():

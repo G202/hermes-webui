@@ -5466,6 +5466,8 @@ def _run_agent_streaming(
     # Placed ABOVE the _checkpoint_stop cluster so that cluster stays adjacent
     # to the `try:` (preserves the Issue #765 static-locator invariant).
     _turn_session_identity_tokens = None
+    _hermes_home_override_token = None
+    _reset_hermes_home_override = None
     # Initialised here (before any code that may raise) so the outer `finally`
     # block can safely check `if _checkpoint_stop is not None` even when an
     # exception fires before the checkpoint thread is created (Issue #765).
@@ -5516,6 +5518,21 @@ def _run_agent_streaming(
             _profile_home = os.environ.get('HERMES_HOME', '')
             _profile_runtime_env = {}
             patch_skill_home_modules = None
+
+        # AIAgent and profile-scoped helpers resolve their home through
+        # hermes_constants.get_hermes_home(). Pin that resolver to this turn so
+        # another concurrent stream cannot replace process-global HERMES_HOME
+        # between profile resolution and agent construction.
+        if _profile_home:
+            try:
+                from hermes_constants import (
+                    reset_hermes_home_override as _reset_hermes_home_override,
+                    set_hermes_home_override as _set_hermes_home_override,
+                )
+                _hermes_home_override_token = _set_hermes_home_override(_profile_home)
+            except ImportError:
+                # Older Hermes Agent builds use the process environment fallback.
+                _reset_hermes_home_override = None
 
         # Profile-aware provider/model enrichment: when the session belongs
         # to a profile that specifies model.provider and model.default, use
@@ -8200,6 +8217,11 @@ def _run_agent_streaming(
                 and getattr(s, 'pending_user_message', None)):
             update_active_run(stream_id, phase="finalizing")
             _last_resort_sync_from_core(s, stream_id, _agent_lock)
+        if _hermes_home_override_token is not None and _reset_hermes_home_override is not None:
+            try:
+                _reset_hermes_home_override(_hermes_home_override_token)
+            except Exception:
+                logger.debug("Failed to reset Hermes home override", exc_info=True)
         _clear_thread_env()  # TD1: always clear thread-local context
         # xsession wakeup misroute root fix (Option 1): restore the per-turn
         # session-identity context-locals (reset-token semantics). MUST run on

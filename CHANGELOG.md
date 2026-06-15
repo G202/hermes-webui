@@ -3,6 +3,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Concurrent named-profile chats now keep the correct Hermes home throughout each streaming turn.** The WebUI binds Hermes Agent's context-local home resolver to the session profile before agent construction and resets it on every exit path, so another stream changing process-global `HERMES_HOME` cannot substitute the wrong profile's `SOUL.md` or profile-scoped state.
+
 ## [v0.51.424] — 2026-06-15 — Release OK (visible-message tail pagination, #4069)
 
 ### Fixed
